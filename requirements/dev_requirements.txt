@@ -1,0 +1,4 @@
+wemake-python-styleguide
+black[jupyter]
+isort
+mypy
