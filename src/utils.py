@@ -28,11 +28,28 @@ def average_precision(actual, recommended, k=30):
             ap_sum += hits / (i + 1)
     return ap_sum / min(k, len(actual))
 
+#TODO: дописать код
+def mean_average_precision(actual_dict, recommended_dict, k=30):
+    total_ap = 0
+    users_count = 0
+
+    for user_id, actual in actual_dict.items():
+        recommended = recommended_dict.get(user_id, [])
+
+        # Считаем AP только для тех пользователей, у которых есть реальные данные
+        if actual:
+            actual_set = set(actual)
+            ap = average_precision(actual_set, recommended, k=k)
+            total_ap += ap
+            users_count += 1
+
+    # Возвращаем среднее значение AP по всем пользователям, у которых были актуальные данные
+    return total_ap / users_count if users_count > 0 else 0
+
 
 def normalized_average_precision(actual_dict, recommended_dict, k=30):
     total_nap = 0
     users_count = len(actual_dict)
-
     for user_id, actual in actual_dict.items():
         recommended = recommended_dict.get(user_id, [])
 
@@ -46,3 +63,16 @@ def normalized_average_precision(actual_dict, recommended_dict, k=30):
         total_nap += ap / ap_ideal if ap_ideal != 0 else 0
 
     return total_nap / users_count
+
+
+def train_test_split(ratings):
+    ratings['rank_latest'] = ratings.groupby(['userId'])['timestamp'] \
+                                .rank(method='first', ascending=False)
+
+    train_ratings = ratings[ratings['rank_latest'] != 1]
+    test_ratings = ratings[ratings['rank_latest'] == 1]
+
+    # дропаем колонки которые нам уже не нужны (timestamp)
+    train_ratings = train_ratings[['userId', 'movieId', 'rating']]
+    test_ratings = test_ratings[['userId', 'movieId', 'rating']]
+    return train_ratings, test_ratings
