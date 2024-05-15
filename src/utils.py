@@ -18,7 +18,7 @@ class MovieEncoder:
         return self.movie_data.shape[0]
 
 
-def average_precision(actual, recommended, k=30):
+def average_precision(actual, recommended, k=6):
     ap_sum = 0
     hits = 0
     for i in range(k):
@@ -28,8 +28,7 @@ def average_precision(actual, recommended, k=30):
             ap_sum += hits / (i + 1)
     return ap_sum / min(k, len(actual))
 
-#TODO: дописать код
-def mean_average_precision(actual_dict, recommended_dict, k=30):
+def mean_average_precision(actual_dict, recommended_dict, k=6):
     total_ap = 0
     users_count = 0
 
@@ -47,7 +46,7 @@ def mean_average_precision(actual_dict, recommended_dict, k=30):
     return total_ap / users_count if users_count > 0 else 0
 
 
-def normalized_average_precision(actual_dict, recommended_dict, k=30):
+def normalized_average_precision(actual_dict, recommended_dict, k=6):
     total_nap = 0
     users_count = len(actual_dict)
     for user_id, actual in actual_dict.items():
