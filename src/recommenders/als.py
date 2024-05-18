@@ -1,7 +1,7 @@
 import pandas as pd
-from base import BaseRecommender
+from base import BaseRecommender, to_user_item_coo
 from implicit.cpu.als import AlternatingLeastSquares
-from scipy.sparse import coo_matrix, csr_matrix, vstack
+from scipy.sparse import csr_matrix, vstack
 
 
 class ALSRecommender(BaseRecommender):
@@ -33,15 +33,14 @@ class ALSRecommender(BaseRecommender):
         Returns
         Tuple of (itemids, scores) arrays. For a single user these array will be 1-dimensional with N items.
         '''
-        return self.model.recommend(userid, self.user_items, N=N, filter_already_liked_items=filter_already_liked_items,
+        return self.model.recommend(userid, self.user_items[userid], N=N, filter_already_liked_items=filter_already_liked_items,
                                    filter_items=filter_items, recalculate_user=recalculate_user, items=items)
 
-    def get_recommend_for_new_user(self, user_id, ratings, n_recommendations=6):
+    def get_recommend_for_new_user(self, ratings, n_recommendations=6):
         '''
         Получаем рекомендации для нового пользователя. Если recalculate=True, данные нового пользователя добавляются в основную матрицу.
 
         Parameters
-        user_id (int) – ID нового пользователя
         ratings (dict) – Словарь с оценками нового пользователя, где ключами являются movieId, а значениями - оценки (float)
         n_recommendations (int, optional) – Количество рекомендаций для возврата
 
@@ -50,39 +49,13 @@ class ALSRecommender(BaseRecommender):
         '''
         num_items = self.user_items.shape[1]
 
-        # Create temporary CSR matrix for new user
         temp_user_items = csr_matrix((1, num_items))
         for movie_id, rating in ratings.items():
             temp_user_items[0, movie_id] = rating
+        # userid (в нашем случае 0) вообще не важен т.к. recalculate_user=True
         recommendations = self.model.recommend(0, temp_user_items, N=n_recommendations, recalculate_user=True)
 
         return recommendations
-
-def to_user_item_coo(df, shape):
-    """ Turn a dataframe with transactions into a COO sparse items x users matrix
-    Parameters
-    df (DataFrame) - Набор данных которые нужно переделать в COO матрицу
-    shape (tuple) - Размерность матрицы (num_users, num_items)
-    """
-    row = df['userId'].values
-    col = df['movieId'].values
-    data = df['rating'].values
-    coo = coo_matrix((data, (row, col)), shape=shape)
-    return coo
-
-def add_new_user_to_csr(csr_matrix, new_user_data, num_items):
-    user_id = csr_matrix.shape[0]  # new user id is the next index
-    new_user_df = pd.DataFrame({
-        'userId': [user_id] * len(new_user_data),
-        'movieId': list(new_user_data.keys()),
-        'rating': list(new_user_data.values())
-    })
-
-    new_user_coo = to_user_item_coo(new_user_df, shape=(user_id + 1, num_items))
-    new_user_csr = new_user_coo.tocsr()
-    updated_csr_matrix = vstack([csr_matrix, new_user_csr])
-
-    return updated_csr_matrix
 
 if __name__ == "__main__":
     from src.constants import MOVIE_PATH, RATINGS_PATH, WEIGHTS_PATH
@@ -95,7 +68,6 @@ if __name__ == "__main__":
     user_items = to_user_item_coo(ratings, (max_user_id + 1, max_movie_id + 1)).tocsr()
     recommender = ALSRecommender(model_path, user_items)
 
-    user_id = max_user_id + 1
     import json
     with open(r'custom_user_ratings\egor_ratings.json', 'r', encoding='utf-8') as file:
         new_ratings = json.load(file)
@@ -107,8 +79,8 @@ if __name__ == "__main__":
     from src.utils import MovieMapper
     movie_mapper = MovieMapper(MOVIE_PATH)
 
-    recommendations = recommender.get_recommend_for_new_user(user_id, new_ratings, n_recommendations=10)
-    print(f"Recommendations for user {user_id} without updating matrix:")
+    recommendations = recommender.get_recommend_for_new_user(new_ratings, n_recommendations=6)
+    print(f"Recommendations for user without updating matrix:")
     item_ids, scores = recommendations
     for movie_id, score in zip(item_ids, scores):
         print(f"Movie ID: {movie_id}, Movie Title: {movie_mapper.movieid_to_title(movie_id)}, Score: {score}")
