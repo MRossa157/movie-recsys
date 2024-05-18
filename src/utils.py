@@ -1,6 +1,7 @@
 import pandas as pd
 
 
+#! depricated
 class MovieEncoder:
     def __init__(self, movie_csv_path) -> None:
         self.movie_data = pd.read_csv(movie_csv_path)
@@ -16,6 +17,22 @@ class MovieEncoder:
 
     def num_products(self):
         return self.movie_data.shape[0]
+
+class MovieMapper:
+    def __init__(self, movie_data_path):
+        # Загружаем данные о фильмах
+        self.movie_data = pd.read_csv(movie_data_path)
+        # Создаем словари для быстрого поиска
+        self.movie_id_to_title = pd.Series(self.movie_data.title.values, index=self.movie_data.movieId).to_dict()
+        self.title_to_id = pd.Series(self.movie_data.movieId.values, index=self.movie_data.title).to_dict()
+
+    def movieid_to_title(self, movieid: int) -> str | None:
+        # Возвращаем название фильма по его ID
+        return self.movie_id_to_title.get(movieid, None)
+
+    def title_to_movieid(self, title: str) -> int | None:
+        # Возвращаем ID фильма по его названию
+        return self.title_to_id.get(title, None)
 
 
 def average_precision(actual, recommended, k=6):
