@@ -1,7 +1,7 @@
 import pandas as pd
 from base import BaseRecommender, to_user_item_coo
 from implicit.cpu.als import AlternatingLeastSquares
-from scipy.sparse import csr_matrix, vstack
+from scipy.sparse import csr_matrix
 
 
 class ALSRecommender(BaseRecommender):
