@@ -81,7 +81,8 @@ def normalized_average_precision(actual_dict, recommended_dict, k=6):
     return total_nap / users_count
 
 
-def train_test_split(ratings):
+def train_test_split(ratings: pd.DataFrame):
+    ratings = ratings.copy()
     ratings['rank_latest'] = ratings.groupby(['userId'])['timestamp'] \
                                 .rank(method='first', ascending=False)
 
