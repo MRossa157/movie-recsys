@@ -32,6 +32,9 @@ if __name__ == "__main__":
     ratings = pd.read_csv(RATINGS_PATH)
     logging.info('Предобрабатываем данные')
     train_ratings = ratings[['userId', 'movieId', 'rating']]
+    # Implicit -> Explicit convert
+    train_ratings.loc[:, 'rating'] = 1
+
     coo_train = to_user_item_coo(train_ratings)
     csr_train = coo_train.tocsr()
 

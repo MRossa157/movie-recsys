@@ -81,7 +81,7 @@ def normalized_average_precision(actual_dict, recommended_dict, k=6):
     return total_nap / users_count
 
 
-def train_test_split(ratings: pd.DataFrame):
+def train_test_split(ratings: pd.DataFrame, explicit=True):
     ratings = ratings.copy()
     ratings['rank_latest'] = ratings.groupby(['userId'])['timestamp'] \
                                 .rank(method='first', ascending=False)
@@ -92,4 +92,7 @@ def train_test_split(ratings: pd.DataFrame):
     # дропаем колонки которые нам уже не нужны (timestamp)
     train_ratings = train_ratings[['userId', 'movieId', 'rating']]
     test_ratings = test_ratings[['userId', 'movieId', 'rating']]
+    if explicit:
+        # Implicit -> Explicit convert
+        train_ratings.loc[:, 'rating'] = 1
     return train_ratings, test_ratings
