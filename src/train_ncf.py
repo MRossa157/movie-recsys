@@ -29,24 +29,24 @@ class MovieLensTrainDataset(Dataset):
         return self.users[idx], self.items[idx], self.labels[idx]
 
     def get_dataset(self, ratings):
-
         # Перевод оценок
-        ratings['rating'] *= 2  # умножаем на 2, чтобы перейти к 10-балльной шкале
+        ratings["rating"] *= 2  # умножаем на 2, чтобы перейти к 10-балльной шкале
 
-        users = ratings['userId'].values
-        items = ratings['movieId'].values
-        labels = ratings['rating'].values
+        users = ratings["userId"].values
+        items = ratings["movieId"].values
+        labels = ratings["rating"].values
 
         return torch.tensor(users), torch.tensor(items), torch.tensor(labels)
 
-class NCF(pl.LightningModule):
-    """ Neural Collaborative Filtering (NCF)
 
-        Args:
-            num_users (int): Number of unique users (train + test)
-            num_items (int): Number of unique items (train + test)
-            train_ratings (pd.DataFrame): Dataframe containing the movie ratings for training
-            val_ratings (pd.DataFrame): Dataframe containing the movie ratings for validating
+class NCF(pl.LightningModule):
+    """Neural Collaborative Filtering (NCF)
+
+    Args:
+        num_users (int): Number of unique users (train + test)
+        num_items (int): Number of unique items (train + test)
+        train_ratings (pd.DataFrame): Dataframe containing the movie ratings for training
+        val_ratings (pd.DataFrame): Dataframe containing the movie ratings for validating
     """
 
     def __init__(self, num_users, num_items, train_ratings, val_ratings):
@@ -65,7 +65,6 @@ class NCF(pl.LightningModule):
         self.output = nn.Linear(in_features=32, out_features=11)
 
         self.loss = nn.CrossEntropyLoss()
-
 
     def forward(self, user_input, item_input):
         # Pass through embedding layers
@@ -95,7 +94,7 @@ class NCF(pl.LightningModule):
 
         loss = self.loss(predicted_logits, labels)
 
-        self.log('train_loss', loss, prog_bar=True)
+        self.log("train_loss", loss, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -105,7 +104,7 @@ class NCF(pl.LightningModule):
 
         loss = self.loss(predicted_logits, labels)
 
-        self.log('val_loss', loss, prog_bar=True)
+        self.log("val_loss", loss, prog_bar=True)
         return loss
 
     # def configure_optimizers(self):
@@ -117,21 +116,30 @@ class NCF(pl.LightningModule):
         return torch.optim.SGD(self.parameters(), lr=0.01, momentum=0.9)
 
     def train_dataloader(self):
-        return DataLoader(self.dataset, batch_size=512, num_workers=5, persistent_workers=True)
+        return DataLoader(
+            self.dataset, batch_size=512, num_workers=5, persistent_workers=True
+        )
 
     def val_dataloader(self):
-        return DataLoader(self.validation_dataset, batch_size=512, num_workers=5, persistent_workers=True)
+        return DataLoader(
+            self.validation_dataset,
+            batch_size=512,
+            num_workers=5,
+            persistent_workers=True,
+        )
 
 
 if __name__ == "__main__":
     MAX_EPOCHS = 10
 
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    logging.info('Считываем данные')
-    ratings = pd.read_csv(constants.RATINGS_PATH, parse_dates=['timestamp'])
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    )
+    logging.info("Считываем данные")
+    ratings = pd.read_csv(constants.RATINGS_PATH, parse_dates=["timestamp"])
 
     # TAKE 30% HERE
-    logging.info('Предобрабатываем данные')
+    logging.info("Предобрабатываем данные")
     # rand_userIds = np.random.choice(ratings['userId'].unique(),
     #                             size=int(len(ratings['userId'].unique())*0.3),
     #                             replace=False)
@@ -141,22 +149,25 @@ if __name__ == "__main__":
     train_ratings, test_ratings = train_test_split(ratings)
 
     # Init NCF model
-    logging.info('Инициализируем модель')
-    num_users = ratings['userId'].max()+1
-    num_items = ratings['movieId'].max()+1
+    logging.info("Инициализируем модель")
+    num_users = ratings["userId"].max() + 1
+    num_items = ratings["movieId"].max() + 1
 
     model = NCF(num_users, num_items, train_ratings, test_ratings)
 
-    checkpoint_callback = ModelCheckpoint(dirpath=r'src/weights/',
-                                          filename='{epoch}-{val_loss:.2f}',
-                                          monitor="val_loss")
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=r"src/weights/", filename="{epoch}-{val_loss:.2f}", monitor="val_loss"
+    )
 
-    trainer = pl.Trainer(max_epochs=MAX_EPOCHS,
-                         devices="auto", accelerator="auto",
-                         logger=False,
-                         callbacks=[checkpoint_callback],
-                         fast_dev_run=False,)
+    trainer = pl.Trainer(
+        max_epochs=MAX_EPOCHS,
+        devices="auto",
+        accelerator="auto",
+        logger=False,
+        callbacks=[checkpoint_callback],
+        fast_dev_run=False,
+    )
 
-    logging.info('Запускаем обучение')
+    logging.info("Запускаем обучение")
     trainer.fit(model)
     trainer.save_checkpoint(r"src/weights/NCF_FINAL_epoch.ckpt")

@@ -18,13 +18,18 @@ class MovieEncoder:
     def num_products(self):
         return self.movie_data.shape[0]
 
+
 class MovieMapper:
     def __init__(self, movie_data_path):
         # Загружаем данные о фильмах
         self.movie_data = pd.read_csv(movie_data_path)
         # Создаем словари для быстрого поиска
-        self.movie_id_to_title = pd.Series(self.movie_data.title.values, index=self.movie_data.movieId).to_dict()
-        self.title_to_id = pd.Series(self.movie_data.movieId.values, index=self.movie_data.title).to_dict()
+        self.movie_id_to_title = pd.Series(
+            self.movie_data.title.values, index=self.movie_data.movieId
+        ).to_dict()
+        self.title_to_id = pd.Series(
+            self.movie_data.movieId.values, index=self.movie_data.title
+        ).to_dict()
 
     def movieid_to_title(self, movieid: int) -> str | None:
         # Возвращаем название фильма по его ID
@@ -44,6 +49,7 @@ def average_precision(actual, recommended, k=6):
             hits += 1
             ap_sum += hits / (i + 1)
     return ap_sum / min(k, len(actual))
+
 
 def mean_average_precision(actual_dict, recommended_dict, k=6):
     total_ap = 0
@@ -83,13 +89,14 @@ def normalized_average_precision(actual_dict, recommended_dict, k=6):
 
 def train_test_split(ratings: pd.DataFrame):
     ratings = ratings.copy()
-    ratings['rank_latest'] = ratings.groupby(['userId'])['timestamp'] \
-                                .rank(method='first', ascending=False)
+    ratings["rank_latest"] = ratings.groupby(["userId"])["timestamp"].rank(
+        method="first", ascending=False
+    )
 
-    train_ratings = ratings[ratings['rank_latest'] != 1]
-    test_ratings = ratings[ratings['rank_latest'] == 1]
+    train_ratings = ratings[ratings["rank_latest"] != 1]
+    test_ratings = ratings[ratings["rank_latest"] == 1]
 
     # дропаем колонки которые нам уже не нужны (timestamp)
-    train_ratings = train_ratings[['userId', 'movieId', 'rating']]
-    test_ratings = test_ratings[['userId', 'movieId', 'rating']]
+    train_ratings = train_ratings[["userId", "movieId", "rating"]]
+    test_ratings = test_ratings[["userId", "movieId", "rating"]]
     return train_ratings, test_ratings
