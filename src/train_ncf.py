@@ -102,13 +102,6 @@ class NCF(pl.LightningModule):
         self.log("train_loss", loss, prog_bar=True)
         return loss
 
-    # def validation_step(self, batch, batch_idx):
-    #     user_input, item_input, labels = batch
-    #     predicted_labels = self(user_input, item_input)
-    #     loss = nn.BCELoss()(predicted_labels, labels.view(-1, 1).float())
-    #     self.log("val_loss", loss, prog_bar=True)
-    #     return loss
-
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-3)
 
@@ -119,14 +112,6 @@ class NCF(pl.LightningModule):
             num_workers=5,
             persistent_workers=True,
         )
-
-    # def val_dataloader(self):
-    #     return DataLoader(
-    #         MovieLensTrainDataset(self.ratings, self.all_movieIds, is_training=False),
-    #         batch_size=constants.NCF_BATCH_SIZE,
-    #         num_workers=5,
-    #         persistent_workers=True,
-    #     )
 
 
 if __name__ == "__main__":
@@ -162,7 +147,7 @@ if __name__ == "__main__":
     model = NCF(num_users, num_items, train_ratings, all_movieIds)
 
     checkpoint_callback = ModelCheckpoint(
-        dirpath=r"src/weights/",
+        dirpath=constants.WEIGHTS_PATH,
         filename="{epoch}-{train_loss:.2f}",
         monitor="train_loss",
     )
@@ -179,4 +164,4 @@ if __name__ == "__main__":
 
     logging.info("Запускаем обучение")
     trainer.fit(model)
-    trainer.save_checkpoint(r"src/weights/NCF_FINAL_epoch.ckpt")
+    trainer.save_checkpoint(rf"{constants.WEIGHTS_PATH}/NCF_FINAL_epoch.ckpt")
