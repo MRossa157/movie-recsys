@@ -96,7 +96,8 @@ def train_test_split(ratings: pd.DataFrame):
     train_ratings = ratings[ratings["rank_latest"] != 1]
     test_ratings = ratings[ratings["rank_latest"] == 1]
 
-    # дропаем колонки которые нам уже не нужны (timestamp)
-    train_ratings = train_ratings[["userId", "movieId", "rating"]]
-    test_ratings = test_ratings[["userId", "movieId", "rating"]]
+    # дропаем колонки которые нам уже не нужны
+    train_ratings.drop("rank_latest", axis=1, inplace=True)
+    test_ratings.drop("rank_latest", axis=1, inplace=True)
+
     return train_ratings, test_ratings

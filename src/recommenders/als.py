@@ -1,7 +1,12 @@
+import json
+
 import pandas as pd
-from base import BaseRecommender, to_user_item_coo
+from base import BaseRecommender
 from implicit.cpu.als import AlternatingLeastSquares
-from scipy.sparse import csr_matrix
+from scipy.sparse import coo_matrix, csr_matrix
+
+from src.constants import MOVIE_PATH, RATINGS_PATH, WEIGHTS_PATH
+from src.utils import MovieMapper
 
 
 class ALSRecommender(BaseRecommender):
@@ -74,20 +79,31 @@ class ALSRecommender(BaseRecommender):
 
         return recommendations
 
+    @staticmethod
+    def to_user_item_coo(df, shape):
+        """Turn a dataframe with transactions into a COO sparse items x users matrix
+        Parameters
+        df (DataFrame) - Набор данных которые нужно переделать в COO матрицу
+        shape (tuple) - Размерность матрицы (num_users, num_items)
+        """
+        row = df["userId"].values
+        col = df["movieId"].values
+        data = df["rating"].values
+        coo = coo_matrix((data, (row, col)), shape=shape)
+        return coo
+
 
 if __name__ == "__main__":
-    from src.constants import MOVIE_PATH, RATINGS_PATH, WEIGHTS_PATH
-
     model_path = rf"{WEIGHTS_PATH}/als.npz"
     ratings = pd.read_csv(RATINGS_PATH)
 
     max_user_id = ratings["userId"].max()
     max_movie_id = ratings["movieId"].max()
 
-    user_items = to_user_item_coo(ratings, (max_user_id + 1, max_movie_id + 1)).tocsr()
+    user_items = ALSRecommender.to_user_item_coo(
+        ratings, (max_user_id + 1, max_movie_id + 1)
+    ).tocsr()
     recommender = ALSRecommender(model_path, user_items)
-
-    import json
 
     with open(r"custom_user_ratings\egor_ratings.json", "r", encoding="utf-8") as file:
         new_ratings = json.load(file)
@@ -98,14 +114,12 @@ if __name__ == "__main__":
     # Star Wars Fan
     # new_ratings = {5378: 5, 33493: 5, 61160: 5, 79006: 4, 100089: 5, 109713: 5, 260: 5, 1196: 5}
 
-    from src.utils import MovieMapper
-
     movie_mapper = MovieMapper(MOVIE_PATH)
 
     recommendations = recommender.get_recommend_for_new_user(
         new_ratings, n_recommendations=6
     )
-    print("Recommendations for user without updating matrix:")
+    print("Recommendations for user ")
     item_ids, scores = recommendations
     for movie_id, score in zip(item_ids, scores):
         print(
