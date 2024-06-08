@@ -1,30 +1,77 @@
 import json
 
+import numpy as np
 import pandas as pd
 from base import BaseRecommender
 from implicit.cpu.als import AlternatingLeastSquares
 from scipy.sparse import coo_matrix, csr_matrix
 
-from src.constants import MOVIE_PATH, RATINGS_PATH, WEIGHTS_PATH
+import src.constants as constants
 from src.utils import MovieMapper
 
 
 class ALSRecommender(BaseRecommender):
-    def __init__(self, model_path, user_items) -> None:
+    def __init__(self, model_path, ratings, movies) -> None:
         """
-        model_path (str) = Path to .npz checkpoint file from lib 'implicit' ALS model
-        user_items (csr_matrix) – A sparse matrix of shape (users, number_items). This lets us look up the liked items and their weights for the user. This is used to filter out items that have already been liked from the output, and to also potentially recalculate the user representation. Each row in this sparse matrix corresponds to a row in the userid parameter: that is the first row in this matrix contains the liked items for the first user in the userid array.
+        model_path (str): Path to .npz checkpoint file from lib 'implicit' ALS model
+
+        ratings (pd.DataFrame): Dataframe containing the movie ratings that it was trained on
+        movies (pd.DataFrame): Dataframe containing the data movies
         """
         if not model_path.endswith(".npz"):
             raise ValueError("Путь к модели должен содержать файл с расширением .npz")
         self.model = AlternatingLeastSquares.load(model_path)
-        self.user_items = user_items
+        self.ratings = ratings
+        self.movies = movies
+
+        self.__create_mappings(ratings, movies)
+
+        ready_ratings = self.__prepare_ratings(self.ratings)
+        self.user_items = ALSRecommender.to_user_item_coo(ready_ratings).tocsr()
+
+    def __create_mappings(self, ratings, movies):
+        self.ALL_USERS = ratings["userId"].unique().tolist()
+        self.ALL_ITEMS = movies["movieId"].unique().tolist()
+
+        self.user_ids = dict(list(enumerate(self.ALL_USERS)))
+        self.item_ids = dict(list(enumerate(self.ALL_ITEMS)))
+
+        self.user_map = {u: uidx for uidx, u in self.user_ids.items()}
+        self.item_map = {i: iidx for iidx, i in self.item_ids.items()}
+
+    def get_mapped_user(self, user_id):
+        return self.user_map.get(user_id)
+
+    def get_mapped_item(self, item_id):
+        return self.item_map.get(item_id)
+
+    def __prepare_ratings(self, ratings):
+        ratings = ratings.copy()
+        ratings["mapped_user_id"] = ratings["userId"].map(self.user_map)
+        ratings["mapped_movie_id"] = ratings["movieId"].map(self.item_map)
+        return ratings
+
+    @staticmethod
+    def to_user_item_coo(df: pd.DataFrame):
+        """Turn a dataframe with transactions into a COO sparse items x users matrix"""
+        row = df["mapped_user_id"].values
+        col = df["mapped_movie_id"].values
+        data = np.ones(df.shape[0])
+        coo = coo_matrix((data, (row, col)))
+        return coo
+
+    @staticmethod
+    def print_recommendations(movie_mapper: MovieMapper, item_ids, scores):
+        for movie_id, score in zip(item_ids, scores):
+            print(
+                f"Movie ID: {movie_id}, Movie Title: {movie_mapper.movieid_to_title(movie_id)}, Score: {score}"
+            )
 
     def get_recommendation(
         self,
         userid,
-        N=10,
-        filter_already_liked_items=True,
+        N=12,
+        filter_already_liked_items=False,
         filter_items=None,
         recalculate_user=False,
         items=None,
@@ -46,9 +93,11 @@ class ALSRecommender(BaseRecommender):
         Returns
         Tuple of (itemids, scores) arrays. For a single user these array will be 1-dimensional with N items.
         """
-        return self.model.recommend(
-            userid,
-            self.user_items[userid],
+        customer_id = self.get_mapped_user(userid)
+
+        ids, scores = self.model.recommend(
+            customer_id,
+            self.user_items[customer_id],
             N=N,
             filter_already_liked_items=filter_already_liked_items,
             filter_items=filter_items,
@@ -56,72 +105,71 @@ class ALSRecommender(BaseRecommender):
             items=items,
         )
 
-    def get_recommend_for_new_user(self, ratings, n_recommendations=6):
+        mapped_ids = [self.item_ids.get(item_id) for item_id in ids]
+
+        return mapped_ids, scores
+
+    def get_recommendation_for_new_user(self, ratings, n_recommendations=6):
         """
-        Получаем рекомендации для нового пользователя. Если recalculate=True, данные нового пользователя добавляются в основную матрицу.
+        Get recommendations for a new user.
 
         Parameters
-        ratings (dict) – Словарь с оценками нового пользователя, где ключами являются movieId, а значениями - оценки (float)
-        n_recommendations (int, optional) – Количество рекомендаций для возврата
+        ratings (dict) - Dictionary with new user's ratings, where keys are movieId and values are ratings (float).
+        n_recommendations (int, optional) - Number of recommendations to return
 
         Returns
-        Tuple of (itemids, scores) arrays. Для одного пользователя эти массивы будут 1-мерными с N элементами.
+        Tuple of (itemids, scores) arrays. For a single user, these arrays will be 1-dimensional with N items.
         """
+
         num_items = self.user_items.shape[1]
 
         temp_user_items = csr_matrix((1, num_items))
-        for movie_id, rating in ratings.items():
-            temp_user_items[0, movie_id] = rating
-        # userid (в нашем случае 0) вообще не важен т.к. recalculate_user=True
-        recommendations = self.model.recommend(
+
+        for movie_id, _ in ratings.items():
+            mapped_movie_id = self.get_mapped_item(movie_id)
+            # Since this is an implicit method, we simply mark the element that the user interacted with
+            temp_user_items[0, mapped_movie_id] = 1
+
+        # userid is not important because recalculate_user=True
+        ids, scores = self.model.recommend(
             0, temp_user_items, N=n_recommendations, recalculate_user=True
         )
 
-        return recommendations
+        mapped_ids = [self.item_ids.get(item_id) for item_id in ids]
 
-    @staticmethod
-    def to_user_item_coo(df, shape):
-        """Turn a dataframe with transactions into a COO sparse items x users matrix
-        Parameters
-        df (DataFrame) - Набор данных которые нужно переделать в COO матрицу
-        shape (tuple) - Размерность матрицы (num_users, num_items)
-        """
-        row = df["userId"].values
-        col = df["movieId"].values
-        data = df["rating"].values
-        coo = coo_matrix((data, (row, col)), shape=shape)
-        return coo
+        return mapped_ids, scores
 
 
 if __name__ == "__main__":
-    model_path = rf"{WEIGHTS_PATH}/als.npz"
-    ratings = pd.read_csv(RATINGS_PATH)
+    model_path = rf"{constants.WEIGHTS_PATH}/als.npz"
+    ratings = pd.read_csv(constants.RATINGS_PATH)
+    movies = pd.read_csv(constants.MOVIE_PATH)
 
-    max_user_id = ratings["userId"].max()
-    max_movie_id = ratings["movieId"].max()
-
-    user_items = ALSRecommender.to_user_item_coo(
-        ratings, (max_user_id + 1, max_movie_id + 1)
-    ).tocsr()
-    recommender = ALSRecommender(model_path, user_items)
-
-    with open(r"custom_user_ratings\egor_ratings.json", "r", encoding="utf-8") as file:
-        new_ratings = json.load(file)
-        new_ratings = {
-            int(movieid): float(rating) for movieid, rating in new_ratings.items()
-        }
-
+    recommender = ALSRecommender(model_path, ratings, movies)
     # Star Wars Fan
-    # new_ratings = {5378: 5, 33493: 5, 61160: 5, 79006: 4, 100089: 5, 109713: 5, 260: 5, 1196: 5}
+    new_user_ratings = {
+        5378: 5,
+        33493: 5,
+        61160: 5,
+        79006: 4,
+        100089: 5,
+        109713: 5,
+        260: 5,
+        1196: 5,
+    }
 
-    movie_mapper = MovieMapper(MOVIE_PATH)
+    # with open(r"custom_user_ratings/egor_ratings.json", "r", encoding="utf-8") as file:
+    #     new_user_ratings = json.load(file)
+    #     new_user_ratings = {
+    #         int(movieid): float(rating) for movieid, rating in new_user_ratings.items()
+    #     }
 
-    recommendations = recommender.get_recommend_for_new_user(
-        new_ratings, n_recommendations=6
+    recommendations = recommender.get_recommendation_for_new_user(
+        new_user_ratings, n_recommendations=6
     )
-    print("Recommendations for user ")
-    item_ids, scores = recommendations
-    for movie_id, score in zip(item_ids, scores):
-        print(
-            f"Movie ID: {movie_id}, Movie Title: {movie_mapper.movieid_to_title(movie_id)}, Score: {score}"
-        )
+
+    movie_mapper = MovieMapper(constants.MOVIE_PATH)
+
+    ALSRecommender.print_recommendations(
+        movie_mapper, recommendations[0], recommendations[1]
+    )
