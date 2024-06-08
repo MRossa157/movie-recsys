@@ -1,11 +1,13 @@
 import logging
 
+import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 from pytorch_lightning.callbacks import ModelCheckpoint
 from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 
 import constants
 from utils import train_test_split
@@ -16,11 +18,14 @@ class MovieLensTrainDataset(Dataset):
 
     Args:
         ratings (pd.DataFrame): Dataframe containing the movie ratings
+        all_movieIds (list): List containing all movieIds
+        is_training (bool): Default is True. Indicate for progress bar
+
     """
 
-    def __init__(self, ratings: pd.DataFrame):
-        self.ratings = ratings.copy()
-        self.users, self.items, self.labels = self.get_dataset(self.ratings)
+    def __init__(self, ratings, all_movieIds, is_training: bool = True):
+        self.is_training = is_training
+        self.users, self.items, self.labels = self.get_dataset(ratings, all_movieIds)
 
     def __len__(self):
         return len(self.users)
@@ -28,13 +33,25 @@ class MovieLensTrainDataset(Dataset):
     def __getitem__(self, idx):
         return self.users[idx], self.items[idx], self.labels[idx]
 
-    def get_dataset(self, ratings):
-        # Перевод оценок
-        ratings["rating"] *= 2  # умножаем на 2, чтобы перейти к 10-балльной шкале
+    def get_dataset(self, ratings, all_movieIds):
+        users, items, labels = [], [], []
+        user_item_set = set(zip(ratings["userId"], ratings["movieId"]))
 
-        users = ratings["userId"].values
-        items = ratings["movieId"].values
-        labels = ratings["rating"].values
+        num_negatives = 4
+        for u, i in tqdm(
+            user_item_set,
+            desc=f"Generating negative sample for {'training' if self.is_training else 'validating'}",
+        ):
+            users.append(u)
+            items.append(i)
+            labels.append(1)
+            for _ in range(num_negatives):
+                negative_item = np.random.choice(all_movieIds)
+                while (u, negative_item) in user_item_set:
+                    negative_item = np.random.choice(all_movieIds)
+                users.append(u)
+                items.append(negative_item)
+                labels.append(0)
 
         return torch.tensor(users), torch.tensor(items), torch.tensor(labels)
 
@@ -43,28 +60,23 @@ class NCF(pl.LightningModule):
     """Neural Collaborative Filtering (NCF)
 
     Args:
-        num_users (int): Number of unique users (train + test)
-        num_items (int): Number of unique items (train + test)
-        train_ratings (pd.DataFrame): Dataframe containing the movie ratings for training
-        val_ratings (pd.DataFrame): Dataframe containing the movie ratings for validating
+        num_users (int): Number of unique users
+        num_items (int): Number of unique items
+        ratings (pd.DataFrame): Dataframe containing the movie ratings for training
+        all_movieIds (list): List containing all movieIds (train + test)
     """
 
-    def __init__(self, num_users, num_items, train_ratings, val_ratings):
+    def __init__(self, num_users, num_items, ratings, all_movieIds):
         super().__init__()
-        self.dataset = MovieLensTrainDataset(train_ratings)
-        self.validation_dataset = MovieLensTrainDataset(val_ratings)
+
+        self.ratings = ratings
+        self.all_movieIds = all_movieIds
 
         self.user_embedding = nn.Embedding(num_embeddings=num_users, embedding_dim=8)
         self.item_embedding = nn.Embedding(num_embeddings=num_items, embedding_dim=8)
-
-        input_size = 8 + 8  # user_embedded + item_embedded
-        self.fc1 = nn.Linear(in_features=input_size, out_features=64)
-        self.bn1 = nn.BatchNorm1d(64)
+        self.fc1 = nn.Linear(in_features=16, out_features=64)
         self.fc2 = nn.Linear(in_features=64, out_features=32)
-        self.bn2 = nn.BatchNorm1d(32)
-        self.output = nn.Linear(in_features=32, out_features=11)
-
-        self.loss = nn.CrossEntropyLoss()
+        self.output = nn.Linear(in_features=32, out_features=1)
 
     def forward(self, user_input, item_input):
         # Pass through embedding layers
@@ -74,59 +86,47 @@ class NCF(pl.LightningModule):
         # Concat the two embedding layers
         vector = torch.cat([user_embedded, item_embedded], dim=-1)
 
-        # Pass through dense layers
-        # vector = nn.ReLU()(self.fc1(vector))
-        # vector = nn.ReLU()(self.fc2(vector))
-        vector = self.fc1(vector)
-        vector = self.bn1(vector)  # Нормализация после первого слоя
-        vector = nn.ReLU()(vector)
-        vector = self.fc2(vector)
-        vector = self.bn2(vector)  # Нормализация после второго слоя
-        vector = nn.ReLU()(vector)
-        pred = self.output(vector)
+        # Pass through dense layer
+        vector = nn.ReLU()(self.fc1(vector))
+        vector = nn.ReLU()(self.fc2(vector))
+
+        # Output layer
+        pred = nn.Sigmoid()(self.output(vector))
 
         return pred
 
     def training_step(self, batch, batch_idx):
         user_input, item_input, labels = batch
-        labels = labels.long()  # Ensure that labels are in the correct type
-        predicted_logits = self(user_input, item_input)
-
-        loss = self.loss(predicted_logits, labels)
-
+        predicted_labels = self(user_input, item_input)
+        loss = nn.BCELoss()(predicted_labels, labels.view(-1, 1).float())
         self.log("train_loss", loss, prog_bar=True)
         return loss
 
-    def validation_step(self, batch, batch_idx):
-        user_input, item_input, labels = batch
-        labels = labels.long()
-        predicted_logits = self(user_input, item_input)
-
-        loss = self.loss(predicted_logits, labels)
-
-        self.log("val_loss", loss, prog_bar=True)
-        return loss
-
-    # def configure_optimizers(self):
-    #     optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
-    #     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
-    #     return [optimizer], [scheduler]
+    # def validation_step(self, batch, batch_idx):
+    #     user_input, item_input, labels = batch
+    #     predicted_labels = self(user_input, item_input)
+    #     loss = nn.BCELoss()(predicted_labels, labels.view(-1, 1).float())
+    #     self.log("val_loss", loss, prog_bar=True)
+    #     return loss
 
     def configure_optimizers(self):
-        return torch.optim.SGD(self.parameters(), lr=0.01, momentum=0.9)
+        return torch.optim.Adam(self.parameters(), lr=1e-3)
 
     def train_dataloader(self):
         return DataLoader(
-            self.dataset, batch_size=512, num_workers=5, persistent_workers=True
-        )
-
-    def val_dataloader(self):
-        return DataLoader(
-            self.validation_dataset,
-            batch_size=512,
+            MovieLensTrainDataset(self.ratings, self.all_movieIds, is_training=True),
+            batch_size=constants.NCF_BATCH_SIZE,
             num_workers=5,
             persistent_workers=True,
         )
+
+    # def val_dataloader(self):
+    #     return DataLoader(
+    #         MovieLensTrainDataset(self.ratings, self.all_movieIds, is_training=False),
+    #         batch_size=constants.NCF_BATCH_SIZE,
+    #         num_workers=5,
+    #         persistent_workers=True,
+    #     )
 
 
 if __name__ == "__main__":
@@ -140,32 +140,41 @@ if __name__ == "__main__":
 
     # TAKE 30% HERE
     logging.info("Предобрабатываем данные")
-    # rand_userIds = np.random.choice(ratings['userId'].unique(),
-    #                             size=int(len(ratings['userId'].unique())*0.3),
-    #                             replace=False)
+    rand_userIds = np.random.choice(
+        ratings["userId"].unique(),
+        size=int(len(ratings["userId"].unique()) * 0.3),
+        replace=False,
+    )
 
-    # ratings = ratings.loc[ratings['userId'].isin(rand_userIds)]
+    ratings = ratings.loc[ratings["userId"].isin(rand_userIds)]
 
-    train_ratings, test_ratings = train_test_split(ratings)
+    train_ratings, _ = train_test_split(ratings)
+
+    # Explicit to implicit convert
+    train_ratings.loc[:, "rating"] = 1
 
     # Init NCF model
     logging.info("Инициализируем модель")
     num_users = ratings["userId"].max() + 1
     num_items = ratings["movieId"].max() + 1
+    all_movieIds = ratings["movieId"].unique()
 
-    model = NCF(num_users, num_items, train_ratings, test_ratings)
+    model = NCF(num_users, num_items, train_ratings, all_movieIds)
 
     checkpoint_callback = ModelCheckpoint(
-        dirpath=r"src/weights/", filename="{epoch}-{val_loss:.2f}", monitor="val_loss"
+        dirpath=r"src/weights/",
+        filename="{epoch}-{train_loss:.2f}",
+        monitor="train_loss",
     )
 
     trainer = pl.Trainer(
-        max_epochs=MAX_EPOCHS,
+        # fast_dev_run=True,
+        max_epochs=5,
+        reload_dataloaders_every_n_epochs=1,
         devices="auto",
         accelerator="auto",
         logger=False,
         callbacks=[checkpoint_callback],
-        fast_dev_run=False,
     )
 
     logging.info("Запускаем обучение")
