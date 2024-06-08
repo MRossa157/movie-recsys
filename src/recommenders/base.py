@@ -14,5 +14,5 @@ class BaseRecommender(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def get_recommend_for_new_user(self):
+    def get_recommendation_for_new_user(self):
         raise NotImplementedError()
