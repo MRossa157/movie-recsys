@@ -1,145 +1,143 @@
+import enum
 import warnings
 
+import constants
 import implicit
 import numpy as np
 import pandas as pd
 from implicit.evaluation import mean_average_precision_at_k
-from pandas import DataFrame
 from scipy.sparse import coo_matrix
-from sklearn.base import BaseEstimator, RegressorMixin
-from sklearn.model_selection import GridSearchCV
-
-import constants
 from utils import train_test_split
 
 warnings.filterwarnings("ignore")
 
 
-class ALSWrapper(BaseEstimator, RegressorMixin):
-    def __init__(self, factors=100, iterations=15, regularization=0.01):
-        self.factors = factors
-        self.iterations = iterations
-        self.regularization = regularization
-        self.model = None
+class Device(enum.Enum):
+    CPU = "cpu"
+    GPU = "gpu"
 
-    def fit(self, X, y=None):
-        self.model = implicit.cpu.als.AlternatingLeastSquares(
-            factors=self.factors,
-            iterations=self.iterations,
-            regularization=self.regularization,
+
+class GridSearcher:
+    def __init__(
+        self,
+        ratings: pd.DataFrame,
+        movies: pd.DataFrame,
+        device: Device = Device.CPU,
+        show_progress=True,
+    ) -> None:
+        self.device = device
+        self.ratings = ratings.copy()
+        self.movies = movies.copy()
+        self.show_progress = show_progress
+
+        # In train propouses we will use only 30% of all ratings dataset
+        rand_userIds = np.random.choice(
+            self.ratings["userId"].unique(),
+            size=int(len(self.ratings["userId"].unique()) * 0.3),
+            replace=False,
         )
 
-        self.model.fit(X)
+        self.ratings = self.ratings.loc[self.ratings["userId"].isin(rand_userIds)]
 
-        return self
+        ALL_USERS = self.ratings["userId"].unique().tolist()
+        ALL_ITEMS = self.movies["movieId"].unique().tolist()
 
-    def predict(self, X):
-        # For grid searching, this can just return a vector of zeros as actual prediction values are not used.
-        return np.zeros(X.shape[0])
+        user_ids = dict(list(enumerate(ALL_USERS)))
+        item_ids = dict(list(enumerate(ALL_ITEMS)))
 
+        user_map = {u: uidx for uidx, u in user_ids.items()}
+        item_map = {i: iidx for iidx, i in item_ids.items()}
 
-def map_scorer(estimator, X, y):
-    csr_train, csr_val = X, y
+        self.ratings["mapped_user_id"] = self.ratings["userId"].map(user_map)
+        self.ratings["mapped_movie_id"] = self.ratings["movieId"].map(item_map)
 
-    return mean_average_precision_at_k(estimator.model, csr_train, csr_val, K=6)
+    def run(
+        self,
+    ):
+        matrices = self.get_val_matrices(self.ratings)
 
+        # Grid Search
+        regularization_params = [0, 0.1, 0.01]
+        iter_params = [3, 12, 14, 15, 20]
+        factors_params = [40, 50, 60, 100, 200, 500, 1000]
 
-def to_user_item_coo(df: DataFrame):
-    """Turn a dataframe with transactions into a COO sparse items x users matrix"""
-    row = df["mapped_user_id"].values
-    col = df["mapped_movie_id"].values
-    data = np.ones(df.shape[0])
-    coo = coo_matrix((data, (row, col)))
-    return coo
+        best_map = 0
+        for regularization in regularization_params:
+            for iterations in iter_params:
+                for factors in factors_params:
+                    map = self.validate(
+                        matrices,
+                        factors,
+                        iterations,
+                        regularization,
+                    )
+                    if map > best_map:
+                        best_map = map
+                        best_params = {
+                            "factors": factors,
+                            "iterations": iterations,
+                            "regularization": regularization,
+                        }
+                        print(f"Best MAP@30 found. Updating: {best_params}")
 
+    def to_user_item_coo(self, df: pd.DataFrame):
+        """Turn a dataframe with transactions into a COO sparse items x users matrix"""
+        row = df["mapped_user_id"].values
+        col = df["mapped_movie_id"].values
+        data = np.ones(df.shape[0])
+        coo = coo_matrix((data, (row, col)))
+        return coo
 
-def get_val_matrices(df: DataFrame):
-    """
-    Returns a dictionary with the following keys:
-            csr_train: training data in CSR sparse format and as (users x items)
-            csr_val:  validation data in CSR sparse format and as (users x items)
-    """
-    df_train, df_val = train_test_split(df)
+    def get_val_matrices(self, df: pd.DataFrame):
+        """
+        Returns a dictionary with the following keys:
+                csr_train: training data in CSR sparse format and as (users x items)
+                csr_val:  validation data in CSR sparse format and as (users x items)
+        """
+        df_train, df_test = train_test_split(df)
 
-    coo_train = to_user_item_coo(df_train)
-    coo_val = to_user_item_coo(df_val)
+        coo_train = self.to_user_item_coo(df_train)
+        coo_test = self.to_user_item_coo(df_test)
 
-    csr_train = coo_train.tocsr()
-    csr_val = coo_val.tocsr()
+        csr_train = coo_train.tocsr()
+        csr_test = coo_test.tocsr()
 
-    return {"csr_train": csr_train, "csr_val": csr_val}
+        return {"csr_train": csr_train, "csr_test": csr_test}
 
+    def validate(
+        self,
+        matrices: dict,
+        factors=200,
+        iterations=20,
+        regularization=0.01,
+    ):
+        """Train an ALS model with <<factors>> (embeddings dimension)
+        for <<iterations>> over matrices and validate with Mean Average Precision
+        """
+        csr_train, csr_test = matrices["csr_train"], matrices["csr_test"]
 
-def validate(
-    matrices: dict, factors=200, iterations=20, regularization=0.01, show_progress=True
-):
-    """Train an ALS model with <<factors>> (embeddings dimension)
-    for <<iterations>> over matrices and validate with Mean Average Precision
-    """
-    csr_train, csr_val = matrices["csr_train"], matrices["csr_val"]
+        if self.device == Device.CPU:
+            model = implicit.cpu.als.AlternatingLeastSquares(
+                factors=factors, iterations=iterations, regularization=regularization
+            )
+        else:
+            model = implicit.gpu.als.AlternatingLeastSquares(
+                factors=factors, iterations=iterations, regularization=regularization
+            )
+        model.fit(csr_train, show_progress=self.show_progress)
 
-    model = implicit.cpu.als.AlternatingLeastSquares(
-        factors=factors, iterations=iterations, regularization=regularization
-    )
-    model.fit(csr_train, show_progress=show_progress)
-
-    metric_map = mean_average_precision_at_k(
-        model, csr_train, csr_val, K=6, show_progress=show_progress
-    )
-    print(
-        f"Factors: {factors:>3} - Iterations: {iterations:>2} - Regularization: {regularization:4.3f} ==> MAP@6: {metric_map:6.5f}"
-    )
-    return metric_map
+        metric_map = mean_average_precision_at_k(
+            model, csr_train, csr_test, K=6, show_progress=self.show_progress
+        )
+        print(
+            f"Factors: {factors:>3} - Iterations: {iterations:>2} - Regularization: {regularization:4.3f} ==> MAP@6: {metric_map:6.5f}"
+        )
+        return metric_map
 
 
 if __name__ == "__main__":
     ratings = pd.read_csv(constants.RATINGS_PATH)
     movies = pd.read_csv(constants.MOVIE_PATH)
 
-    # In train propouses we will use only 30% of all ratings dataset
-    rand_userIds = np.random.choice(
-        ratings["userId"].unique(),
-        size=int(len(ratings["userId"].unique()) * 0.3),
-        replace=False,
-    )
-
-    ratings = ratings.loc[ratings["userId"].isin(rand_userIds)]
-    print(
-        "There are {} rows of data from {} users".format(
-            len(ratings), len(rand_userIds)
-        )
-    )
-
-    ALL_USERS = ratings["userId"].unique().tolist()
-    ALL_ITEMS = movies["movieId"].unique().tolist()
-
-    user_ids = dict(list(enumerate(ALL_USERS)))
-    item_ids = dict(list(enumerate(ALL_ITEMS)))
-
-    user_map = {u: uidx for uidx, u in user_ids.items()}
-    item_map = {i: iidx for iidx, i in item_ids.items()}
-
-    ratings["mapped_user_id"] = ratings["userId"].map(user_map)
-    ratings["mapped_movie_id"] = ratings["movieId"].map(item_map)
-
-    # train_ratings, test_ratings = train_test_split(ratings)
-
-    matrices = get_val_matrices(ratings)
-    csr_train, csr_val = matrices["csr_train"], matrices["csr_val"]
-
-    # Set up GridSearchCV
-    param_grid = {
-        "factors": [40, 50, 60, 100, 200, 500, 1000],
-        "iterations": [3, 12, 14, 15, 20],
-        "regularization": [0, 0.1, 0.01],
-    }
-
-    model = ALSWrapper()
-    grid = GridSearchCV(model, param_grid, cv=None, scoring=map_scorer, verbose=2)
-    grid.fit(csr_train, csr_val)
-
-    # Results
-    best_params = grid.best_params_
-    best_score = grid.best_score_
-    print("Best Parameters:", best_params)
-    print("Best Score:", best_score)
+    searcher = GridSearcher(ratings=ratings, movies=movies)
+    searcher.run()
