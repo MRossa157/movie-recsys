@@ -78,7 +78,8 @@ class GridSearcher:
                             "iterations": iterations,
                             "regularization": regularization,
                         }
-                        print(f"Best MAP@30 found. Updating: {best_params}")
+                        print(f"Best MAP@6 found. Updating: {best_params}")
+        return best_params, best_map
 
     def to_user_item_coo(self, df: pd.DataFrame):
         """Turn a dataframe with transactions into a COO sparse items x users matrix"""
@@ -138,6 +139,8 @@ class GridSearcher:
 if __name__ == "__main__":
     ratings = pd.read_csv(constants.RATINGS_PATH)
     movies = pd.read_csv(constants.MOVIE_PATH)
-
     searcher = GridSearcher(ratings=ratings, movies=movies)
-    searcher.run()
+
+    best_params, best_score = searcher.run()
+    print("Best Parameters:", best_params)
+    print("Best Score:", best_score)
