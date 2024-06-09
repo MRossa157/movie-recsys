@@ -1,5 +1,6 @@
 import logging
 
+import constants
 import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
@@ -8,8 +9,6 @@ import torch.nn as nn
 from pytorch_lightning.callbacks import ModelCheckpoint
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
-
-import constants
 from utils import train_test_split
 
 
@@ -154,7 +153,7 @@ if __name__ == "__main__":
 
     trainer = pl.Trainer(
         # fast_dev_run=True,
-        max_epochs=5,
+        max_epochs=constants.NCF_MAX_EPOCHS,
         reload_dataloaders_every_n_epochs=1,
         devices="auto",
         accelerator="auto",
