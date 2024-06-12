@@ -163,4 +163,3 @@ if __name__ == "__main__":
 
     logging.info("Запускаем обучение")
     trainer.fit(model)
-    trainer.save_checkpoint(rf"{constants.WEIGHTS_PATH}/NCF_FINAL_epoch.ckpt")

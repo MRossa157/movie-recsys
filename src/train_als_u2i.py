@@ -8,7 +8,7 @@ from scipy.sparse import coo_matrix
 
 import constants
 
-BEST_PARAMS = {"factors": 100, "iterations": 12, "regularization": 0}
+BEST_PARAMS = {'factors': 60, 'iterations': 15, 'regularization': 0.01}
 
 
 def train(
