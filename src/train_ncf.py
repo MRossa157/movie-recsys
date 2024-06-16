@@ -123,14 +123,14 @@ if __name__ == "__main__":
     ratings = pd.read_csv(constants.RATINGS_PATH, parse_dates=["timestamp"])
 
     # TAKE 30% HERE
-    logging.info("Предобрабатываем данные")
-    rand_userIds = np.random.choice(
-        ratings["userId"].unique(),
-        size=int(len(ratings["userId"].unique()) * 0.3),
-        replace=False,
-    )
+    # logging.info("Предобрабатываем данные")
+    # rand_userIds = np.random.choice(
+    #     ratings["userId"].unique(),
+    #     size=int(len(ratings["userId"].unique()) * 0.3),
+    #     replace=False,
+    # )
 
-    ratings = ratings.loc[ratings["userId"].isin(rand_userIds)]
+    # ratings = ratings.loc[ratings["userId"].isin(rand_userIds)]
 
     train_ratings, _ = train_test_split(ratings)
 
