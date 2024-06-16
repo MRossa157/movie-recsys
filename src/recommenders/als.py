@@ -141,28 +141,34 @@ class ALSRecommender(BaseRecommender):
 
 
 if __name__ == "__main__":
+    from_custom_ratings = False
     model_path = rf"{constants.WEIGHTS_PATH}/als.npz"
     ratings = pd.read_csv(constants.RATINGS_PATH)
     movies = pd.read_csv(constants.MOVIE_PATH)
 
     recommender = ALSRecommender(model_path, ratings, movies)
-    # Star Wars Fan
-    new_user_ratings = {
-        5378: 5,
-        33493: 5,
-        61160: 5,
-        79006: 4,
-        100089: 5,
-        109713: 5,
-        260: 5,
-        1196: 5,
-    }
 
-    # with open(r"custom_user_ratings/egor_ratings.json", "r", encoding="utf-8") as file:
-    #     new_user_ratings = json.load(file)
-    #     new_user_ratings = {
-    #         int(movieid): float(rating) for movieid, rating in new_user_ratings.items()
-    #     }
+    if from_custom_ratings:
+        with open(
+            r"custom_user_ratings/egor_ratings.json", "r", encoding="utf-8"
+        ) as file:
+            new_user_ratings = json.load(file)
+            new_user_ratings = {
+                int(movieid): float(rating)
+                for movieid, rating in new_user_ratings.items()
+            }
+    else:
+        # Star Wars Fan
+        new_user_ratings = {
+            5378: 5,
+            33493: 5,
+            61160: 5,
+            79006: 4,
+            100089: 5,
+            109713: 5,
+            260: 5,
+            1196: 5,
+        }
 
     recommendations = recommender.get_recommendation_for_new_user(
         new_user_ratings, n_recommendations=6
