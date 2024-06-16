@@ -114,8 +114,6 @@ class NCF(pl.LightningModule):
 
 
 if __name__ == "__main__":
-    MAX_EPOCHS = 10
-
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
     )
@@ -163,3 +161,10 @@ if __name__ == "__main__":
 
     logging.info("Запускаем обучение")
     trainer.fit(model)
+
+    logging.info(
+        f"Сохраняем веса модели (последний чекпоинт) в папку {constants.WEIGHTS_PATH}"
+    )
+    trainer.save_checkpoint(
+        f"{constants.WEIGHTS_PATH}/NCF_result_epochs={constants.NCF_MAX_EPOCHS}.ckpt"
+    )
