@@ -43,8 +43,8 @@ services:
   # front:
   #   build:
   #     context: .
-  #     dockerfile: .dockerfiles/frontend/dockerfile
-  #   container_name: wordle_frontend
+  #     dockerfile: frontend/dockerfile
+  #   container_name: movie_recsys_frontend
   #   depends_on:
   #     - app
   #   ports:
