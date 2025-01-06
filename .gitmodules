@@ -1,0 +1,6 @@
+[submodule "backend"]
+	path = backend
+	url = https://github.com/MRossa157/MovieRecSysBackend
+[submodule "ml_development"]
+	path = ml_development
+	url = https://github.com/MRossa157/MovieRecSysMLDevelopment
