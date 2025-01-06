@@ -1,0 +1,52 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: backend/dockerfile
+    container_name: movie_recsys_backend
+    ports:
+      - "${BACK_PORT}:${BACK_PORT}"
+    env_file:
+      - .env
+    environment:
+      BACK_HOST: ${BACK_HOST}
+      BACK_PORT: ${BACK_PORT}
+      PYTHONPATH: /backend
+    depends_on:
+      - database
+    command: [
+      "sh", "-c",
+      "poetry run uvicorn
+      src.app:app
+      --host ${BACK_HOST}
+      --port ${BACK_PORT}"
+    ]
+
+  database:
+    image: postgres:14.4-alpine
+    container_name: movie_recsys_backend_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      POSTGRES_DB: ${DATABASE_NAME}
+    ports:
+      - "${DATABASE_PORT}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER} -d ${DATABASE_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./backend/postgres-data:/var/lib/postgresql/data
+
+  # front:
+  #   build:
+  #     context: .
+  #     dockerfile: .dockerfiles/frontend/dockerfile
+  #   container_name: wordle_frontend
+  #   depends_on:
+  #     - app
+  #   ports:
+  #     - "3000:3000"
+  #   command: ["npm", "start"]
